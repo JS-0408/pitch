@@ -1,0 +1,9 @@
+# Azure training overrides — applied on top of local.yaml when YAAZHI_ENV=azure
+detector:
+  provider: cuda
+
+# Larger batch and more workers available on cloud VM
+# Override: set batch_size in train.py via this config
+train:
+  workers: 8
+  batch_size: 32

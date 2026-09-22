@@ -1,0 +1,30 @@
+# === Core ===
+numpy>=2.0,<2.2
+opencv-python>=4.10
+pyyaml>=6.0
+scipy>=1.13
+
+# === PyTorch (CUDA 12.4 wheel — GTX 1650 / Python 3.13) ===
+# Install with:
+#   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+torch>=2.6.0+cu124
+torchvision>=0.21.0+cu124
+torchaudio>=2.6.0+cu124
+
+# === ONNX Runtime ===
+onnxruntime-gpu>=1.18.0
+onnx>=1.16.0
+
+# === Detection model ===
+ultralytics>=8.2
+
+# === Testing ===
+pytest>=8.2
+pytest-timeout>=2.3
+
+# === Code quality ===
+ruff>=0.5
+
+# === Utilities ===
+python-dotenv>=1.0
+tqdm>=4.66

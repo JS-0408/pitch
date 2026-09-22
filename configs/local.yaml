@@ -1,0 +1,51 @@
+sensor:
+  width: 160
+  height: 120
+  hfov_deg: 57.0
+  fps: 9
+
+imu:
+  rate_hz: 200
+
+display:
+  render_fps: 60
+  window_scale: 4
+
+detector:
+  model_path: models/yaazhi_n320.onnx
+  imgsz: 320
+  conf: 0.25
+  nms_iou: 0.5
+  provider: cuda
+
+tracker:
+  confirm_hits: 3
+  coast_ms: 600
+  drop_ms: 1500
+  gate_iou: 0.2
+  conf_decay_per_s: 1.2
+
+reprojection:
+  enabled: true
+  max_delta_deg: 60
+
+safety:
+  frame_stale_ms: 400
+  imu_stale_ms: 100
+  fade_after_ms: 300
+  safe_after_ms: 1200
+  recovery_good_samples: 10
+
+preprocess:
+  agc: adaptive
+  clahe_clip: 2.0
+
+smoke_sim:
+  enabled: false
+  density: 0.6
+
+paths:
+  data: data
+  models: models
+  reports: reports
+  sessions: data/sessions

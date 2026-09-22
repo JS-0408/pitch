@@ -1,0 +1,39 @@
+# Data and models (large files)
+data/raw/
+data/processed/
+data/sessions/
+models/*.pt
+models/*.onnx
+*.onnx
+
+# Sessions
+sessions/
+
+# Environment
+.env
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Training runs
+runs/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Pytest cache
+.pytest_cache/
+.ruff_cache/
+
+# Reports (keep structure but not auto-generated large files)
+reports/*.png
+# keep .md and .json reports in git
