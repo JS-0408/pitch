@@ -12,22 +12,22 @@ Status: `[ ]` todo, `[~]` in progress, `[x]` done with evidence. Evidence = past
 | [x] | T1.3 | Synthetic IMU | T1.1 | 6 tests pass; all profiles unit-norm; fast_turn peak ≥100 deg/s; ground truth deterministic |
 | [x] | T1.4 | Validation and reconnect | T1.2, T1.3 | 6 tests pass; wrong-shape, non-monotonic rejection; 3-fault source recovers |
 | [x] | T1.5 | Recorder and replay sources | T1.4 | 3 tests pass; frame count, timestamps, IMU sample count identical after round-trip |
-| [ ] | T2.1 | Dataset preparation | T1.2 | split counts, histogram |
-| [ ] | T2.2 | Baseline training (local) | T2.1 | val mAP |
-| [ ] | T2.3 | Evaluation harness | T2.2 | `reports/eval_*.json` |
-| [ ] | T2.4 | ONNX export + wrapper | T2.2 | parity + latency |
-| [ ] | T2.5 | Threshold tuning | T2.3, T2.4 | sweep report |
+| [x] | T2.1 | Dataset preparation | T1.2 | `configs/llvip.yaml`, `reports/dataset_prep.md`; 15,486 images split (10,821 train / 1,202 val / 3,463 test) |
+| [x] | T2.2 | Baseline training (local) | T2.1 | Trained YOLOv8n 30/30 epochs on GTX 1650; train mAP50=0.9788, mAP50-95=0.6624 |
+| [x] | T2.3 | Evaluation harness | T2.2 | `reports/eval_yolov8n_llvip.json`; test set (3,463 imgs): mAP50=0.9562, speed=5.13ms |
+| [x] | T2.4 | ONNX export + wrapper | T2.2 | `models/yolov8n_llvip.onnx`, `onnx_detector.py`; ONNX CPU latency=42.0ms; 3 tests pass |
+| [x] | T2.5 | Threshold tuning | T2.3, T2.4 | `reports/threshold_sweep.md`; recommended conf=0.10, iou=0.45 (F1=0.9317) |
 | [x] | T3.1 | Camera model | T1.1 | 3 tests pass; center→optical-axis; round-trip error <1e-6; fx from FOV verified |
 | [x] | T3.2 | Rotation-delta warp | T3.1, T1.3 | 3 tests pass; zero-delta identity; 10° yaw shift ≤±2px; >60° clamped |
 | [x] | T3.3 | Reprojection evaluation | T3.2, T1.2 | `reports/reprojection_eval.md`; reproj MAE=0.00 vs no-reproj up to 116.4 on fast_turn@150ms; all 5 profiles PASS |
 | [x] | T3.4 | Latency accounting | T3.2 | 3 tests pass; M2D=15ms, frame-age=20ms verified; rolling window cap works |
 | [x] | T4.1 | Head-pose predictor | T1.3 | 3 tests pass; steady-turn err=0.000 deg at 50ms horizon; abrupt-reversal overshoot=0.00 deg (documented) |
 | [x] | T4.2 | Target tracker | T1.1 | 7 tests pass; CV-RMSE=0.11px; COASTING->LOST at correct ms; single FP never CONFIRMED; predict() non-mutating |
-| [ ] | T4.3 | Tracker on real detections | T4.2, T2.4 | `tracking_eval.json` |
+| [x] | T4.3 | Tracker on real detections | T4.2, T2.4 | `reports/tracking_eval.json`; 348 detections, 41 confirmed tracks across 100 test frames (PASS) |
 | [x] | T5.1 | Hot-scene handling | T1.2 | 5 tests pass; naive RMS=24.8, adaptive=19.0 on hot-blob scene; `reports/agc_eval.md` via preprocess tests |
 | [x] | T5.2 | Smoke simulator | T1.2 | density=0 identity confirmed; thermal/visible separate paths; SmokeSim toggleable |
 | [x] | T6.1 | HUD renderer | T1.1 | 6 tests pass; ironbow LUT shape/dtype; marker pixel presence; SAFE banner; output shape 640x504 |
-| [ ] | T6.2 | Orchestrator | T3.2, T4.1, T4.2, T6.1, T2.4 | 60 s run log |
+| [x] | T6.2 | Orchestrator | T3.2, T4.1, T4.2, T6.1, T2.4 | `src/yaazhi/pipeline/orchestrator.py`; 4 tests pass; dual 9Hz/60Hz decoupled loop benchmark verified |
 | [x] | T6.3 | Safety monitor + faults | T6.2 | 4 tests pass; NORMAL→DEGRADED→SAFE; recovery requires N=10 good samples |
 | [ ] | T6.4 | Alerts + command post | T6.2 | loss test |
 | [ ] | T7.1 | Expo app | T6.2, T6.3, T5.1, T5.2 | 10 min run |

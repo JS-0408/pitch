@@ -1,0 +1,177 @@
+"""
+T2.1 — Dataset preparation.
+Converts LLVIP VOC XML annotations → YOLO txt format.
+Uses infrared (thermal) images only — person class → class 0.
+Splits: train (from LLVIP train), val (10% of train), test (LLVIP test).
+Outputs:
+  data/processed/llvip/images/{train,val,test}/
+  data/processed/llvip/labels/{train,val,test}/
+  configs/llvip.yaml  (YOLO dataset descriptor)
+  reports/dataset_prep.md
+"""
+from __future__ import annotations
+
+import random
+import shutil
+import xml.etree.ElementTree as ET
+from pathlib import Path
+from collections import Counter
+
+# ── paths ------------------------------------------------------------------ #
+ROOT       = Path(__file__).parent.parent
+RAW        = ROOT / "data" / "raw" / "llvip" / "LLVIP"
+PROC       = ROOT / "data" / "processed" / "llvip"
+ANN_DIR    = RAW / "Annotations"
+IR_TRAIN   = RAW / "infrared" / "train"
+IR_TEST    = RAW / "infrared" / "test"
+CONFIGS    = ROOT / "configs"
+REPORTS    = ROOT / "reports"
+
+VAL_FRAC   = 0.10
+SEED       = 42
+
+# ── helpers ---------------------------------------------------------------- #
+
+def voc_xml_to_yolo(xml_path: Path, img_w: int, img_h: int) -> list[str]:
+    """Parse LLVIP VOC XML, return YOLO lines for person boxes."""
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
+    lines = []
+    for obj in root.findall("object"):
+        name = obj.find("name").text.strip().lower()
+        if name != "person":
+            continue
+        bndbox = obj.find("bndbox")
+        xmin = float(bndbox.find("xmin").text)
+        ymin = float(bndbox.find("ymin").text)
+        xmax = float(bndbox.find("xmax").text)
+        ymax = float(bndbox.find("ymax").text)
+        cx = (xmin + xmax) / 2 / img_w
+        cy = (ymin + ymax) / 2 / img_h
+        w  = (xmax - xmin) / img_w
+        h  = (ymax - ymin) / img_h
+        # clamp to [0, 1]
+        cx, cy, w, h = [max(0.0, min(1.0, v)) for v in (cx, cy, w, h)]
+        lines.append(f"0 {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}")
+    return lines
+
+
+def copy_split(stems: list[str], src_img_dir: Path, dst_img_dir: Path,
+               dst_lbl_dir: Path, ann_dir: Path, stats: Counter) -> int:
+    """Copy images and write YOLO labels for a list of stems."""
+    dst_img_dir.mkdir(parents=True, exist_ok=True)
+    dst_lbl_dir.mkdir(parents=True, exist_ok=True)
+    copied = 0
+    for stem in stems:
+        img_src = src_img_dir / f"{stem}.jpg"
+        if not img_src.exists():
+            img_src = src_img_dir / f"{stem}.png"
+        if not img_src.exists():
+            stats["missing_img"] += 1
+            continue
+
+        xml_path = ann_dir / f"{stem}.xml"
+        if not xml_path.exists():
+            stats["missing_xml"] += 1
+            continue
+
+        # Get image size from XML (size tag)
+        tree = ET.parse(xml_path)
+        size = tree.getroot().find("size")
+        if size is not None:
+            img_w = int(size.find("width").text)
+            img_h = int(size.find("height").text)
+        else:
+            # Fallback: read actual image size
+            import cv2
+            img = cv2.imread(str(img_src))
+            if img is None:
+                stats["unreadable"] += 1
+                continue
+            img_h, img_w = img.shape[:2]
+
+        lines = voc_xml_to_yolo(xml_path, img_w, img_h)
+        if not lines:
+            stats["no_persons"] += 1
+            continue  # skip images with no persons
+
+        shutil.copy2(img_src, dst_img_dir / img_src.name)
+        (dst_lbl_dir / f"{stem}.txt").write_text("\n".join(lines))
+        stats["persons"] += len(lines)
+        copied += 1
+
+    stats[f"images"] += copied
+    return copied
+
+
+def main() -> None:
+    random.seed(SEED)
+
+    # Collect all training stems
+    train_stems = sorted([p.stem for p in IR_TRAIN.glob("*.jpg")] +
+                         [p.stem for p in IR_TRAIN.glob("*.png")])
+    test_stems  = sorted([p.stem for p in IR_TEST.glob("*.jpg")] +
+                         [p.stem for p in IR_TEST.glob("*.png")])
+
+    print(f"Raw train images: {len(train_stems)}")
+    print(f"Raw test  images: {len(test_stems)}")
+
+    # Shuffle and split train → train + val
+    random.shuffle(train_stems)
+    n_val   = max(1, int(len(train_stems) * VAL_FRAC))
+    val_stems   = train_stems[:n_val]
+    train_stems = train_stems[n_val:]
+
+    print(f"Split  -> train={len(train_stems)}  val={n_val}  test={len(test_stems)}")
+
+    stats: Counter = Counter()
+
+    n_train = copy_split(train_stems, IR_TRAIN, PROC/"images"/"train", PROC/"labels"/"train", ANN_DIR, stats)
+    n_val_c = copy_split(val_stems,   IR_TRAIN, PROC/"images"/"val",   PROC/"labels"/"val",   ANN_DIR, stats)
+    n_test  = copy_split(test_stems,  IR_TEST,  PROC/"images"/"test",  PROC/"labels"/"test",  ANN_DIR, stats)
+
+    print(f"Processed → train={n_train}  val={n_val_c}  test={n_test}")
+    print(f"Stats: {dict(stats)}")
+
+    # Write dataset YAML for YOLO
+    yaml_content = f"""# LLVIP Infrared — person detection
+# Auto-generated by scripts/prepare_dataset.py
+path: {(PROC).as_posix()}
+train: images/train
+val:   images/val
+test:  images/test
+
+nc: 1
+names: ['person']
+"""
+    (CONFIGS / "llvip.yaml").write_text(yaml_content)
+    print(f"Wrote configs/llvip.yaml")
+
+    # Write report
+    REPORTS.mkdir(exist_ok=True)
+    report = f"""# Dataset Preparation Report — LLVIP Infrared
+
+Generated by `scripts/prepare_dataset.py`
+
+## Splits
+
+| Split | Images | Person boxes |
+|-------|--------|--------------|
+| train | {n_train} | {stats['persons']} (approx) |
+| val   | {n_val_c} | — |
+| test  | {n_test} | — |
+
+## Notes
+- Source: LLVIP infrared channel only (thermal, 8-bit grayscale JPEG)
+- Class: `person` only (class 0 in YOLO format)
+- Images with zero person annotations excluded
+- Val fraction: {VAL_FRAC*100:.0f}% of raw train split, seed={SEED}
+- Missing images: {stats['missing_img']}
+- Missing XMLs: {stats['missing_xml']}
+"""
+    (REPORTS / "dataset_prep.md").write_text(report)
+    print(f"Wrote reports/dataset_prep.md")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,7 @@
+{
+  "num_eval_frames": 100,
+  "total_detections": 348,
+  "unique_confirmed_tracks": 41,
+  "avg_confirmed_tracks_per_frame": 2.55,
+  "status": "PASS"
+}

@@ -12,10 +12,10 @@ display:
   window_scale: 4
 
 detector:
-  model_path: models/yaazhi_n320.onnx
-  imgsz: 320
-  conf: 0.25
-  nms_iou: 0.5
+  model_path: models/yolov8n_llvip.onnx
+  imgsz: 640
+  conf: 0.10
+  nms_iou: 0.45
   provider: cuda
 
 tracker:
