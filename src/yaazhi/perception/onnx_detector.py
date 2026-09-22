@@ -84,11 +84,13 @@ class OnnxDetector:
 
         self._input_name = self._session.get_inputs()[0].name
         self._output_name = self._session.get_outputs()[0].name
-        self._img_size = 640
+        input_shape = self._session.get_inputs()[0].shape
+        self._img_h = input_shape[2] if isinstance(input_shape[2], int) else 160
+        self._img_w = input_shape[3] if isinstance(input_shape[3], int) else 160
 
         logger.info(
             f"msg=onnx_detector_initialized model={self._model_path.name} "
-            f"provider={self._session.get_providers()[0]} conf={self._conf_thresh} iou={self._iou_thresh}"
+            f"input_shape=({self._img_h},{self._img_w}) provider={self._session.get_providers()[0]} conf={self._conf_thresh} iou={self._iou_thresh}"
         )
 
     def detect(self, image: np.ndarray) -> list[Detection]:
@@ -104,13 +106,13 @@ class OnnxDetector:
         else:
             img_bgr = image
 
-        # Resize to 640x640
-        img_resized = cv2.resize(img_bgr, (self._img_size, self._img_size))
+        # Resize to model input shape (self._img_w, self._img_h)
+        img_resized = cv2.resize(img_bgr, (self._img_w, self._img_h))
 
         # Preprocess: HWC BGR → NCHW RGB float32 [0, 1]
         img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
         tensor = img_rgb.astype(np.float32) / 255.0
-        tensor = np.transpose(tensor, (2, 0, 1))[None, :]  # (1, 3, 640, 640)
+        tensor = np.transpose(tensor, (2, 0, 1))[None, :]  # (1, 3, H, W)
 
         # Inference
         outputs = self._session.run([self._output_name], {self._input_name: tensor})[0]
@@ -137,8 +139,8 @@ class OnnxDetector:
         # Apply Non-Maximum Suppression (NMS)
         keep = _nms(boxes_640, scores, self._iou_thresh)
 
-        scale_x = w_orig / float(self._img_size)
-        scale_y = h_orig / float(self._img_size)
+        scale_x = w_orig / float(self._img_w)
+        scale_y = h_orig / float(self._img_h)
 
         detections = []
         for i in keep:

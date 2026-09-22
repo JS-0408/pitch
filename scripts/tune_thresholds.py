@@ -11,7 +11,7 @@ from pathlib import Path
 from ultralytics import YOLO
 
 ROOT = Path(__file__).parent.parent
-MODEL_PATH = ROOT / "runs" / "detect" / "runs" / "detect" / "llvip_baseline" / "weights" / "best.pt"
+MODEL_PATH = ROOT / "runs" / "detect" / "llvip_baseline" / "weights" / "best.pt"
 DATA_YAML = ROOT / "configs" / "llvip.yaml"
 REPORT_PATH = ROOT / "reports" / "threshold_sweep.md"
 
@@ -31,7 +31,7 @@ def run_sweep() -> list[dict]:
                 data=str(DATA_YAML),
                 split="test",
                 batch=32,
-                imgsz=640,
+                imgsz=160,
                 conf=conf,
                 iou=iou,
                 device=0,

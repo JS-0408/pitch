@@ -15,7 +15,7 @@ import onnxruntime as ort
 from ultralytics import YOLO
 
 ROOT = Path(__file__).parent.parent
-PT_MODEL_PATH = ROOT / "runs" / "detect" / "runs" / "detect" / "llvip_baseline" / "weights" / "best.pt"
+PT_MODEL_PATH = ROOT / "runs" / "detect" / "llvip_baseline" / "weights" / "best.pt"
 ONNX_DIR = ROOT / "models"
 ONNX_PATH = ONNX_DIR / "yolov8n_llvip.onnx"
 
@@ -46,15 +46,14 @@ def export_model() -> Path:
 def verify_parity_and_benchmark(onnx_path: Path) -> dict:
     pt_model = YOLO(str(PT_MODEL_PATH))
 
-    # Synthetic thermal frame 640x640 uint8
-    dummy_img = np.random.randint(0, 255, (640, 640, 3), dtype=np.uint8)
+    # Synthetic thermal frame 160x160 uint8 (sensor resolution)
+    dummy_img = np.random.randint(0, 255, (160, 160, 3), dtype=np.uint8)
 
     # PyTorch inference
     pt_results = pt_model(dummy_img, verbose=False)[0]
 
-    # ONNX Runtime inference
-    providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if "CUDAExecutionProvider" in ort.get_available_providers() else ["CPUExecutionProvider"]
-    session = ort.InferenceSession(str(onnx_path), providers=providers)
+    # ONNX Runtime inference — CPU provider for robust zero-dependency evaluation
+    session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
     input_name = session.get_inputs()[0].name
     output_name = session.get_outputs()[0].name
 

@@ -45,16 +45,19 @@ class Orchestrator:
     and extrapolating reticles/warp at 60 Hz for HUD rendering.
     """
 
-    def __init__(self, thermal_source=None, imu_source=None, detector=None) -> None:
-        self.thermal_source = thermal_source or SyntheticThermalSource(fps=9)
+    def __init__(self, thermal_source=None, imu_source=None, detector=None, frame_source=None, target_fps: float = 60.0, display_scale: int = 4) -> None:
+        self.thermal_source = thermal_source or frame_source or SyntheticThermalSource(fps=9)
         self.imu_source = imu_source or SyntheticImuSource(profile=ImuProfile.SLOW_SCAN, rate_hz=200)
         self.detector = detector or OnnxDetector()
 
         self.head_pose = HeadPosePredictor()
         self.tracker = TargetTracker()
-        self.renderer = Renderer()
+        self.renderer = Renderer(scale=display_scale)
         self.safety_monitor = SafetyMonitor()
         self.latency_tracker = LatencyTracker()
+
+        from yaazhi.safety.faults import FaultInjector, FaultType
+        self.fault_injector = FaultInjector()
 
         self.latest_raw_frame: np.ndarray | None = None
         self.latest_proc_frame: np.ndarray | None = None
@@ -62,6 +65,17 @@ class Orchestrator:
         self.latest_quat: tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0)
 
         self.is_running = False
+
+    def start(self) -> None:
+        self.is_running = True
+
+    def stop(self) -> None:
+        self.is_running = False
+
+    def inject_fault(self, fault: Any) -> None:
+        from yaazhi.safety.faults import FaultType
+        if isinstance(fault, FaultType):
+            self.fault_injector.set_fault(fault)
 
     def process_perception_step(self, timestamp_ms: float) -> None:
         """Execute 1 perception step (9 Hz frame arrival)."""
