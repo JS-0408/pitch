@@ -55,6 +55,7 @@ class Orchestrator:
         self.renderer = Renderer(scale=display_scale)
         self.safety_monitor = SafetyMonitor()
         self.latency_tracker = LatencyTracker()
+        self.reprojection_enabled: bool = True  # toggled by expo app
 
         from yaazhi.safety.faults import FaultInjector, FaultType
         self.fault_injector = FaultInjector()
@@ -85,15 +86,25 @@ class Orchestrator:
             if frame_obj is None:
                 return
             self.latest_raw_frame = frame_obj.image
-            self.latest_frame_t_ns = frame_obj.t_capture_ns
+            # Route frame timestamp through fault injector (FRAME_FREEZE stales it)
+            self.latest_frame_t_ns = self.fault_injector.process_frame_timestamp(
+                frame_obj.t_capture_ns
+            )
         except Exception:
             return
 
-        # Fetch latest IMU sample
+        # Fetch latest IMU sample — route timestamp through fault injector (IMU_DROP stales it)
         imu_sample = self.imu_source.read()
+        now_ns = time.monotonic_ns()
         if imu_sample:
             self.latest_quat = imu_sample.quat_wxyz
             self.head_pose.update(imu_sample)
+            t_imu_ns = self.fault_injector.process_imu_timestamp(imu_sample.t_ns)
+        else:
+            t_imu_ns = self.fault_injector.process_imu_timestamp(now_ns)
+
+        # Apply detector latency spike if active
+        self.fault_injector.apply_detector_delay()
 
         # Preprocess AGC
         mode_str = getattr(settings.preprocess, "agc", "adaptive")
@@ -104,13 +115,12 @@ class Orchestrator:
         detections = self.detector.detect(self.latest_proc_frame)
 
         # Update tracking
-        active_tracks = self.tracker.update(detections, timestamp_ms)
+        self.tracker.update(detections, timestamp_ms)
 
-        # Update safety state
-        now_ns = time.monotonic_ns()
+        # Update safety state with fault-routed timestamps
         self.safety_monitor.observe(
             t_frame_ns=self.latest_frame_t_ns,
-            t_imu_ns=now_ns,
+            t_imu_ns=t_imu_ns,
             now_ns=now_ns,
         )
 
@@ -125,11 +135,29 @@ class Orchestrator:
         sys_state = self.safety_monitor.state
         active_tracks = self.tracker.predict(timestamp_ms)
 
+        # Apply reprojection warp if enabled
+        display_frame = self.latest_proc_frame
+        if self.reprojection_enabled and sys_state != SystemState.SAFE:
+            try:
+                from yaazhi.reprojection.camera import build_K
+                from yaazhi.reprojection.warp import reproject, rotation_delta
+                K = build_K(
+                    width=int(getattr(settings.sensor, "width", 160)),
+                    height=int(getattr(settings.sensor, "height", 120)),
+                    hfov_deg=float(getattr(settings.sensor, "hfov_deg", 57.0)),
+                )
+                q_pred = self.head_pose.predict(int(timestamp_ms * 1e6))
+                R_delta = rotation_delta(np.array(self.latest_quat), q_pred)
+                warped, _, _ = reproject(display_frame, K, R_delta)
+                display_frame = warped
+            except Exception:
+                pass  # fall back to unwarped if anything goes wrong
+
         hud = {
             "render_fps": 60.0,
             "m2d_ms": 15.0,
             "tracks": len(active_tracks),
-            "toggles": "AGC:ON",
+            "toggles": f"AGC:ON REPROJ:{'ON' if self.reprojection_enabled else 'OFF'}",
         }
 
         if sys_state == SystemState.SAFE:

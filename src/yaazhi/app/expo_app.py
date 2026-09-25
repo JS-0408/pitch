@@ -26,6 +26,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from yaazhi.config import settings
 from yaazhi.ingestion.imu_synth import SyntheticImuSource, ImuProfile
 from yaazhi.ingestion.sources import SyntheticThermalSource
 from yaazhi.perception.preprocess import AgcMode, preprocess
@@ -45,9 +46,9 @@ IMU_PROFILES = [
 
 FAULTS = [
     FaultType.NONE,
-    FaultType.IMU_DROP,
-    FaultType.FRAME_FREEZE,
-    FaultType.DETECTOR_SPIKE,
+    FaultType.FRAME_FREEZE,   # press F once: thermal freezes → SAFE in 1.2s
+    FaultType.IMU_DROP,       # press F twice: IMU drops → DEGRADED
+    FaultType.DETECTOR_SPIKE, # press F three times: slow inference
 ]
 
 
@@ -88,6 +89,10 @@ class ExpoApp:
         t_start = time.perf_counter()
         frame_delay_ms = int(1000.0 / self.fps)
 
+        # Perception ticker: drive the 9 Hz pipeline from the render loop
+        _perception_interval = 1.0 / 9.0
+        _last_perception_t = 0.0
+
         try:
             while True:
                 t0 = time.perf_counter()
@@ -97,7 +102,12 @@ class ExpoApp:
                 if not self.paused:
                     t_now_ms = (t0 - t_start) * 1000.0
 
-                    # 1. Fetch raw thermal frame
+                    # Drive perception at 9 Hz inside the render loop
+                    if (t0 - _last_perception_t) >= _perception_interval:
+                        self.orchestrator.process_perception_step(t_now_ms)
+                        _last_perception_t = t0
+
+                    # 1. Fetch raw thermal frame (now populated by perception step)
                     raw_frame = self.orchestrator.latest_raw_frame
                     if raw_frame is None:
                         raw_frame = np.zeros((120, 160), dtype=np.uint8)
@@ -106,15 +116,22 @@ class ExpoApp:
                     # Render Yaazhi HUD view
                     hud_view = self.orchestrator.render_hud_frame(t_now_ms)
 
-                    # Build raw view side (scaled to match HUD view height)
+                    # Build raw view side — scale sensor frame to display size
                     raw_colored = cv2.cvtColor(
                         preprocess(raw_frame, mode=self.agc_modes[self.agc_idx]),
                         cv2.COLOR_GRAY2BGR,
                     )
                     h_hud, w_hud = hud_view.shape[:2]
-                    # HUD includes status bar at bottom; match thermal portion size
+                    # Scale raw frame to same display size as HUD panel
+                    sensor_h, sensor_w = raw_frame.shape[:2]
+                    display_w = sensor_w * self.scale
+                    display_h = sensor_h * self.scale
+                    raw_resized = cv2.resize(raw_colored, (display_w, display_h), interpolation=cv2.INTER_NEAREST)
+                    # Pad or crop height to match HUD height (excluding its status bar)
                     thermal_h = h_hud - 24
-                    raw_resized = cv2.resize(raw_colored, (w_hud, thermal_h), interpolation=cv2.INTER_NEAREST)
+                    if raw_resized.shape[0] != thermal_h:
+                        raw_resized = cv2.resize(raw_resized, (display_w, thermal_h), interpolation=cv2.INTER_LINEAR)
+                    w_hud = display_w  # keep widths consistent
 
                     # Add label overlay to raw side
                     cv2.putText(
@@ -122,6 +139,9 @@ class ExpoApp:
                         cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 255), 1, cv2.LINE_AA,
                     )
                     if self.smoke_enabled:
+                        # Visual smoke: blur + dark overlay on raw side
+                        smoke_layer = cv2.GaussianBlur(raw_resized, (21, 21), 8)
+                        raw_resized = cv2.addWeighted(raw_resized, 0.35, smoke_layer, 0.65, 0)
                         cv2.putText(
                             raw_resized, "[SIMULATED SMOKE ACTIVE]", (10, 48),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 165, 255), 1, cv2.LINE_AA,
@@ -134,6 +154,16 @@ class ExpoApp:
                         cv2.FONT_HERSHEY_SIMPLEX, 0.38, (150, 150, 150), 1, cv2.LINE_AA,
                     )
                     raw_side = np.vstack([raw_resized, raw_bar])
+
+                    # Add YAAZHI label + coloured border to right panel showing reproj state
+                    border_color = (0, 220, 80) if self.reprojection_enabled else (80, 80, 80)
+                    cv2.rectangle(hud_view, (0, 0), (hud_view.shape[1]-1, hud_view.shape[0]-1),
+                                  border_color, 3)
+                    reproj_label = "YAAZHI OUTPUT (60 fps) | REPROJ: " + ("ON" if self.reprojection_enabled else "OFF")
+                    cv2.putText(hud_view, reproj_label, (10, 24),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.45,
+                                (0, 220, 80) if self.reprojection_enabled else (80, 80, 200),
+                                1, cv2.LINE_AA)
 
                     # Combine side-by-side: [ RAW 9Hz | YAAZHI HUD 60Hz ]
                     combined = np.hstack([raw_side, hud_view])
@@ -173,6 +203,8 @@ class ExpoApp:
                     break
                 elif key == ord("r"):
                     self.reprojection_enabled = not self.reprojection_enabled
+                    # Write to orchestrator (not read-only settings)
+                    self.orchestrator.reprojection_enabled = self.reprojection_enabled
                     print(f"[EXPO] Reprojection toggled: {self.reprojection_enabled}")
                 elif key == ord("s"):
                     self.smoke_enabled = not self.smoke_enabled
@@ -188,8 +220,8 @@ class ExpoApp:
                 elif ord("1") <= key <= ord("5"):
                     self.imu_profile_idx = key - ord("1")
                     prof = IMU_PROFILES[self.imu_profile_idx]
-                    self.imu_src = SyntheticImuSource(profile=prof, rate_hz=200.0)
-                    self.orchestrator.imu_src = self.imu_src
+                    # Use correct orchestrator attribute name
+                    self.orchestrator.imu_source = SyntheticImuSource(profile=prof, rate_hz=200.0)
                     print(f"[EXPO] IMU profile switched to: {prof.value}")
                 elif key == ord(" "):
                     self.paused = not self.paused

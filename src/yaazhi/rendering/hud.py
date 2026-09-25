@@ -170,17 +170,32 @@ class Renderer:
 
     def _draw_safe_banner(self, canvas: np.ndarray) -> None:
         h, w = canvas.shape[:2]
+        # Strong dark red overlay
         overlay = canvas.copy()
-        cv2.rectangle(overlay, (0, 0), (w, h), (0, 0, 50), -1)
-        cv2.addWeighted(overlay, 0.4, canvas, 0.6, 0, canvas)
+        cv2.rectangle(overlay, (0, 0), (w, h), (0, 0, 80), -1)
+        cv2.addWeighted(overlay, 0.7, canvas, 0.3, 0, canvas)
+        # Large centred warning text
         msg = "SENSOR LOST. DIRECT VIEW."
-        (tw, th), _ = cv2.getTextSize(msg, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)
-        cv2.putText(canvas, msg,
-                    ((w - tw) // 2, (h - th) // 2),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2, cv2.LINE_AA)
+        font = cv2.FONT_HERSHEY_DUPLEX
+        scale = max(0.8, w / 500)
+        (tw, th), _ = cv2.getTextSize(msg, font, scale, 2)
+        cx, cy = (w - tw) // 2, (h - th) // 2
+        # Shadow
+        cv2.putText(canvas, msg, (cx + 2, cy + 2), font, scale, (0, 0, 0), 3, cv2.LINE_AA)
+        # Main text bright red
+        cv2.putText(canvas, msg, (cx, cy), font, scale, (0, 0, 255), 2, cv2.LINE_AA)
+        # Sub-text
+        sub = "[ ALL OVERLAYS DISABLED ]"
+        (sw, _), _ = cv2.getTextSize(sub, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+        cv2.putText(canvas, sub, ((w - sw) // 2, cy + th + 20),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (100, 100, 255), 1, cv2.LINE_AA)
 
     def _draw_degraded_tint(self, canvas: np.ndarray) -> None:
+        h, w = canvas.shape[:2]
         overlay = canvas.copy()
-        cv2.rectangle(overlay, (0, 0), (canvas.shape[1], canvas.shape[0]),
-                      (0, 60, 60), -1)
-        cv2.addWeighted(overlay, 0.15, canvas, 0.85, 0, canvas)
+        # Strong amber/orange tint — clearly visible
+        cv2.rectangle(overlay, (0, 0), (w, h), (0, 80, 180), -1)
+        cv2.addWeighted(overlay, 0.40, canvas, 0.60, 0, canvas)
+        # Degraded warning text in top-left
+        cv2.putText(canvas, "!! DEGRADED — SENSOR ISSUE !!", (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 140, 255), 2, cv2.LINE_AA)
